@@ -1,0 +1,8 @@
+# User-specific runtime config (has your hosts/IPs). Ship only the .example.
+prometheus/prometheus.yml
+.env
+
+# Python / editor cruft
+__pycache__/
+*.pyc
+.DS_Store

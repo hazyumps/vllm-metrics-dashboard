@@ -1,0 +1,427 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>vLLM Metrics</title>
+<style>
+  :root{
+    --bg:#0a0c10; --bg2:#0d1015; --panel:#111620; --panel2:#0f141c;
+    --line:#1b2430; --line2:#232f3d;
+    --txt:#e8eef5; --dim:#7c8798; --dim2:#566173;
+    --cyan:#4fb8e8; --cyan-fill:rgba(79,184,232,.16);
+    --purple:#9d8be0; --purple-fill:rgba(157,139,224,.18);
+    --orange:#e0a24a; --green:#3ad17f; --red:#e8636b; --amber:#d99441;
+  }
+  *{box-sizing:border-box;margin:0}
+  html,body{background:var(--bg);color:var(--txt);
+    font:13px/1.4 ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+  body{padding:14px 16px 24px}
+  .row{display:flex;align-items:center;gap:12px}
+  .dim{color:var(--dim)} .dim2{color:var(--dim2)}
+  .caps{text-transform:uppercase;letter-spacing:1.5px}
+  .q{position:relative;display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;
+     border:1px solid var(--line2);border-radius:50%;color:var(--dim2);font-size:9px;margin-left:5px;cursor:help}
+  .q[data-tip]:hover{border-color:var(--dim);color:var(--fg)}
+  .q[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;
+     transform:translateX(-50%);width:250px;max-width:250px;padding:9px 11px;z-index:50;
+     background:#0c0f14;border:1px solid var(--line2);border-radius:8px;box-shadow:0 8px 26px rgba(0,0,0,.6);
+     color:var(--dim);font-size:11px;line-height:1.5;letter-spacing:0;text-transform:none;text-align:left;
+     white-space:normal;font-weight:400;pointer-events:none}
+  .q[data-tip]:hover::before{content:'';position:absolute;bottom:calc(100% + 2px);left:50%;
+     transform:translateX(-50%);border:6px solid transparent;border-top-color:var(--line2);z-index:50;pointer-events:none}
+  .pill{border:1px solid var(--line2);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--dim)}
+  .pill.green{border-color:rgba(58,209,127,.4);color:var(--green)}
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));
+        border:1px solid var(--line);border-radius:14px}
+
+  /* top bar */
+  .top{justify-content:space-between;padding:4px 6px 12px}
+  .brand{font-size:17px;font-weight:700;letter-spacing:3px}
+  .brand .lv{font-size:10px;letter-spacing:2px;color:var(--dim);margin-left:8px}
+
+  /* per-engine chunk */
+  .engine{margin-bottom:26px}
+  .engine+.engine{border-top:1px solid var(--line);padding-top:8px}
+
+  /* hero */
+  .hero{display:grid;grid-template-columns:230px 210px 1fr 200px;gap:22px;align-items:center;
+        padding:16px 22px;margin-bottom:12px}
+  .hero h2{font-size:16px;letter-spacing:1px;font-weight:700}
+  .meta{font-size:11px;margin-top:7px;color:var(--dim)}
+  .meta .node{color:var(--purple)} .meta .awake{color:var(--green)}
+  .big{font-size:52px;font-weight:700;letter-spacing:-1px;line-height:1}
+  .unit{font-size:11px;color:var(--dim);letter-spacing:1px;margin-top:2px}
+  .delta{font-size:11px;color:var(--green);margin-top:4px}
+  .hero_spark{width:100%;height:78px;display:block}
+  .status{justify-self:end;text-align:right}
+  .kv{display:grid;grid-template-columns:auto auto;gap:2px 14px;margin-top:12px;font-size:10px;justify-content:end}
+  .kv .l{color:var(--dim2);text-align:right} .kv .v{text-align:right}
+  .kv .red{color:var(--red)} .kv .amber{color:var(--amber)}
+
+  /* section labels */
+  .sec{justify-content:space-between;padding:14px 6px 8px;font-size:10px;color:var(--dim2)}
+
+  /* tiles */
+  .tiles{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}
+  .tile{padding:13px 14px;min-height:92px;position:relative}
+  .tile .k{font-size:10px;color:var(--dim);display:flex;align-items:center}
+  .tile .v{font-size:25px;font-weight:600;margin-top:9px;letter-spacing:-.5px}
+  .tile .s{font-size:10px;color:var(--dim2);margin-top:5px}
+  .gauge{position:absolute;top:11px;right:11px}
+  .spec_depth{margin-top:6px}
+
+  /* charts */
+  .charts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+  .chart{padding:12px 14px}
+  .chart .h{justify-content:space-between;font-size:10px;color:var(--dim)}
+  .chart .big-r{font-size:12px;color:var(--txt);font-weight:600}
+  .lgd{display:inline-flex;gap:10px;margin-left:8px}
+  .lgd i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle}
+  canvas.tl{width:100%;height:150px;display:block;margin-top:8px}
+
+  /* cost / ROI bar */
+  .costbar{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:center;
+           padding:14px 18px;margin-top:10px}
+  .io{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .io .cl{font-size:10px;color:var(--dim2)}
+  .io .cv{font-size:26px;font-weight:600;margin-top:6px;letter-spacing:-.5px}
+  .io .cs{font-size:10px;color:var(--dim2);margin-top:3px}
+  .prov{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .prov .p{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel2)}
+  .prov .pn{font-size:10px;color:var(--dim);letter-spacing:1px}
+  .prov .pv{font-size:22px;font-weight:600;color:var(--green);margin-top:5px;letter-spacing:-.5px}
+  .prov .pr{font-size:9px;color:var(--dim2);margin-top:4px}
+</style>
+
+<div class="row top">
+  <div><span class="brand" id="brand">VLLM METRICS</span><span class="lv">● LIVE</span></div>
+  <div class="row">
+    <span class="pill green" id="tickpill">+2s</span>
+    <span class="dim" id="clock" style="font-size:12px">—</span>
+    <span class="pill">2s</span>
+  </div>
+</div>
+
+<!-- Your deployment config: engines, brand, lifetime window, prices. Edit config.js. -->
+<script src="config.js"></script>
+<script>
+// ---- metric names (same set for every vLLM engine; vLLM >= 0.6 / v1 metrics) ----
+const M = {
+  gen:'vllm:generation_tokens_total', prompt:'vllm:prompt_tokens_total',
+  run:'vllm:num_requests_running', wait:'vllm:num_requests_waiting',
+  kv:'vllm:kv_cache_usage_perc', preempt:'vllm:num_preemptions_total',
+  hits:'vllm:prefix_cache_hits_total', queries:'vllm:prefix_cache_queries_total',
+  specAcc:'vllm:spec_decode_num_accepted_tokens_total', specDraft:'vllm:spec_decode_num_draft_tokens_total',
+  specPos:'vllm:spec_decode_num_accepted_tokens_per_pos_total',
+  ttftB:'vllm:time_to_first_token_seconds_bucket',
+  itlB:'vllm:request_time_per_output_token_seconds_bucket',
+  tpotSum:'vllm:request_time_per_output_token_seconds_sum',
+  tpotCnt:'vllm:request_time_per_output_token_seconds_count',
+};
+// ---- Everything below comes from window.FLEET_CONFIG (config.js). ----
+// If config.js is missing or empty, these built-in defaults render a single
+// standalone engine that matches all vLLM series it can see.
+const CFG = (typeof window!=='undefined' && window.FLEET_CONFIG) ? window.FLEET_CONFIG : {};
+
+// Brand shown top-left + browser title.
+const BRAND = CFG.brand || 'VLLM METRICS';
+document.getElementById('brand').textContent = BRAND;
+document.title = BRAND;
+
+// Lifetime = increase() over a wide window; reset-aware, survives engine restarts.
+// Set this to match (or stay under) your Prometheus retention. Default 30d.
+const LIFE = CFG.life || '[30d]';
+
+// One chunk per engine — same panels each.
+// `selector` is a Prometheus label matcher identifying that engine's series.
+// Key it on a label present across the engine's WHOLE history (the scrape `job`
+// is ideal) so lifetime increase() stays continuous — a fresh label forks the
+// series and zeroes the lifetime counters. Empty '' matches every series
+// (fine for a single-target Prometheus).
+const DEFAULT_ENGINE = {
+  key:'vllm', selector:'',
+  title:'VLLM ENGINE',
+  meta:'single node · edit config.js',
+  sectionLeft:'NODE · VLLM ENGINE', sectionRight:'MODEL',
+};
+const ENGINES = ((CFG.engines && CFG.engines.length) ? CFG.engines : [DEFAULT_ENGINE])
+  .map((e,i)=>({
+    key:   e.key || ('e'+i),
+    sel:   e.selector!==undefined ? e.selector : (e.job ? `{job="${e.job}"}` : ''),
+    title: e.title || e.key || 'VLLM ENGINE',
+    meta1: e.meta || '',
+    secL:  e.sectionLeft  || ((e.title||'NODE')+' · VLLM ENGINE'),
+    secR:  e.sectionRight || (e.title||'MODEL'),
+  }));
+
+// Equivalent-API-spend pricing, USD per 1M tokens. Shown in the UI so the
+// assumption is explicit. "Cost" = what these same tokens would have cost on a
+// hosted API — i.e. the ROI of self-hosting.
+//   in  = fresh (cache-miss) input   cin = cached input   out = output
+// Input is split cached/fresh using the engine's MEASURED vLLM prefix-cache hit
+// rate. (Approximation: provider cache granularity + cache-write premiums differ.)
+const PRICES = CFG.prices || [
+  {name:'DEEPSEEK',  in:0.27, cin:0.07, out:1.10},   // deepseek-chat; cache hit ~$0.07
+  {name:'OPENAI',    in:2.50, cin:1.25, out:10.00},  // gpt-4o; cached input 50% off
+  {name:'ANTHROPIC', in:3.00, cin:0.30, out:15.00},  // claude sonnet; cache read 90% off
+];
+// Each engine stashes its lifetime tokens here (keyed by engine key); the fleet ROI is the SUM.
+const FLEET = {};
+function renderFleetCost(){
+  const rows = Object.values(FLEET);
+  if(!rows.length) return;
+  const inTok  = rows.reduce((a,r)=>a+r.inTok,0);
+  const outTok = rows.reduce((a,r)=>a+r.outTok,0);
+  const cTok   = rows.reduce((a,r)=>a+r.cTok,0);
+  const fTok   = rows.reduce((a,r)=>a+r.fTok,0);
+  const set=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t;};
+  set('fleet_in', fmtN(inTok)); set('fleet_out', fmtN(outTok));
+  set('fleet_in_sub', fmtN(cTok)+' cached · '+pct(inTok?cTok/inTok:NaN)+' hit');
+  const cell=document.getElementById('fleet_cost'); if(!cell) return;
+  // Cost summed per-engine (each already split by its own hit rate), then priced per provider.
+  cell.innerHTML=PRICES.map(pr=>{
+    const usd = fTok/1e6*pr.in + cTok/1e6*pr.cin + outTok/1e6*pr.out;
+    return `<div class="p"><div class="pn">${pr.name}</div><div class="pv">${fmtUSD(usd)}</div>`
+         + `<div class="pr">$${pr.in}/$${pr.cin}c/$${pr.out} · in/cache/out</div></div>`;
+  }).join('');
+}
+const fmtUSD = v => isNaN(v)?'—': v>=1e6?'$'+(v/1e6).toFixed(2)+'M' : v>=1e3?'$'+(v/1e3).toFixed(1)+'k'
+                    : v>=100?'$'+v.toFixed(0) : '$'+v.toFixed(2);
+
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const q  = e => fetch('/api/q?expr='+encodeURIComponent(e)).then(r=>r.json()).catch(()=>null);
+const qr = (e,m=3) => fetch('/api/qr?expr='+encodeURIComponent(e)+'&mins='+m).then(r=>r.json()).catch(()=>null);
+const num = j => { try{const v=+j.data.result[0].value[1];return isFinite(v)?v:NaN}catch{return NaN} };
+const ser = j => { try{return j.data.result[0].values.map(v=>[+v[0], isFinite(+v[1])?+v[1]:0])}catch{return[]} };
+const fmtN = v => isNaN(v)?'—':v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?(v/1e3).toFixed(1)+'k':v.toFixed(0);
+const pct = v => isNaN(v)?'—':(v*100).toFixed(1)+'%';
+
+// tile definitions (P is the engine's state object, passed in)
+const TILES = [
+  {k:'Tokens',   s:P=>`lifetime · prom ${fmtN(P.promptL)} · gen ${fmtN(P.genL)}`,
+                 v:P=>fmtN((P.promptL||0)+(P.genL||0)),
+                 tip:'Total tokens the engine has processed since the metrics began — prompt (input) plus generated (output). Cumulative, survives restarts.'},
+  {k:'Running',  s:'reqs in engine', v:P=>fmtN(P.run),
+                 tip:'Requests being decoded right now, in flight through the GPU. Roughly the live concurrency.'},
+  {k:'Waiting',  s:'in queue',       v:P=>fmtN(P.wait),
+                 tip:'Requests accepted but queued, waiting for a KV-cache slot before they can run. Persistently high = the engine is saturated.'},
+  {k:'Cache Hit',s:'lifetime prefix',v:P=>pct(P.cacheHitL),
+                 tip:'Prefix-cache hit rate: share of prompt tokens already in the KV cache from an earlier request, so they skip recompute. Higher = cheaper, faster prompts. Also drives the cache-adjusted cost below.'},
+  {k:'KV Cache', s:'usage · live', gauge:true, v:P=>pct(P.kv),
+                 tip:'How full the GPU KV-cache (attention memory for in-flight requests) is right now. Near 100% forces preemptions and queueing.'},
+  {k:'Preemptions',s:'lifetime',     v:P=>fmtN(P.preemptL),
+                 tip:'Times the engine had to evict a running request to free KV cache, recomputing it later. Non-zero and climbing = memory pressure hurting throughput.'},
+  {k:'Spec Accept',s:'lifetime accept',v:P=>pct(P.specAccL),
+                 tip:'Speculative-decoding acceptance rate: share of draft-model tokens the main model accepted. Higher = the speculator is earning its speedup.'},
+  {k:'Spec Depth', s:'accepted / pos', depth:true, v:P=>'',
+                 tip:'How many speculative tokens get accepted at each look-ahead position. Bars taper as positions get harder to predict; longer tail = more tokens per step.'},
+];
+
+// ---- canvas helpers (hi-dpi) ----
+function ctxOf(id){const c=document.getElementById(id);const dpr=devicePixelRatio||1;
+  const w=c.clientWidth,h=c.clientHeight;if(c.width!==w*dpr){c.width=w*dpr;c.height=h*dpr;}
+  const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);return[x,w,h];}
+function grid(x,w,h,mx,fmt){
+  x.strokeStyle=css('--line');x.fillStyle=css('--dim2');x.font='9px monospace';x.lineWidth=1;
+  x.textAlign='left';x.textBaseline='top';
+  for(let i=0;i<=2;i++){const gy=3+(h-6)*i/2;const val=mx*(1-i/2);
+    x.globalAlpha=.5;x.beginPath();x.moveTo(0,gy);x.lineTo(w,gy);x.stroke();x.globalAlpha=1;
+    if(i<2)x.fillText(fmt?fmt(val):Math.round(val),2,gy+2);}
+  x.textAlign='right';x.textBaseline='bottom';
+  ['-180','-90','0s'].forEach((t,i)=>x.fillText(t, i===0?18:i===1?w/2+18:w, h));
+}
+function areaLine(id,data,color,fill,{ymax,showGrid,fmt}={}){
+  const [x,w,h]=ctxOf(id); if(!data.length)return;
+  const ys=data.map(d=>d[1]); const mx=ymax??Math.max(...ys,1)*1.1;
+  if(showGrid)grid(x,w,h,mx,fmt);
+  const X=i=>i/(data.length-1)*w, Y=v=>h-(v/mx)*(h-6)-3;
+  x.beginPath();data.forEach((d,i)=>i?x.lineTo(X(i),Y(d[1])):x.moveTo(X(i),Y(d[1])));
+  x.lineTo(w,h);x.lineTo(0,h);x.closePath();x.fillStyle=fill;x.fill();
+  x.beginPath();data.forEach((d,i)=>i?x.lineTo(X(i),Y(d[1])):x.moveTo(X(i),Y(d[1])));
+  x.strokeStyle=color;x.lineWidth=1.6;x.stroke();
+}
+function multiLine(id,seriesArr,{ymax,fmt}={}){
+  const [x,w,h]=ctxOf(id); const all=seriesArr.flatMap(s=>s.data.map(d=>d[1]));
+  if(!all.length)return; const mx=ymax??Math.max(...all,1)*1.15;
+  grid(x,w,h,mx,fmt);
+  seriesArr.forEach(s=>{const d=s.data;if(!d.length)return;
+    const X=i=>i/(d.length-1)*w,Y=v=>h-(v/mx)*(h-6)-3;
+    x.beginPath();d.forEach((p,i)=>i?x.lineTo(X(i),Y(p[1])):x.moveTo(X(i),Y(p[1])));
+    x.strokeStyle=s.color;x.lineWidth=1.6;x.stroke();});
+}
+function dualArea(id,gen,prompt){
+  const [x,w,h]=ctxOf(id);
+  const gm=Math.max(...gen.map(d=>d[1]),1)*1.2;grid(x,w,h,gm,v=>Math.round(v));
+  const gmax=Math.max(...gen.map(d=>d[1]),1)*1.2, pmax=Math.max(...prompt.map(d=>d[1]),1)*1.2;
+  if(prompt.length){const bw=w/prompt.length;prompt.forEach((d,i)=>{const bh=(d[1]/pmax)*(h-6);
+    x.fillStyle=css('--purple-fill');x.fillRect(i*bw,h-bh,bw*0.8,bh);});}
+  if(gen.length){const X=i=>i/(gen.length-1)*w,Y=v=>h-(v/gmax)*(h-6)-3;
+    x.beginPath();gen.forEach((d,i)=>i?x.lineTo(X(i),Y(d[1])):x.moveTo(X(i),Y(d[1])));
+    x.lineTo(w,h);x.lineTo(0,h);x.closePath();x.fillStyle=css('--cyan-fill');x.fill();
+    x.beginPath();gen.forEach((d,i)=>i?x.lineTo(X(i),Y(d[1])):x.moveTo(X(i),Y(d[1])));
+    x.strokeStyle=css('--cyan');x.lineWidth=1.6;x.stroke();}
+}
+function gauge(id,frac){
+  const [x,w,h]=ctxOf(id);const cx=w/2,cy=h/2,r=w/2-3;const f=isNaN(frac)?0:Math.min(frac,1);
+  x.beginPath();x.arc(cx,cy,r,0,2*Math.PI);x.strokeStyle=css('--line2');x.lineWidth=3;x.stroke();
+  x.beginPath();x.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+2*Math.PI*f);
+  x.strokeStyle=css('--green');x.lineWidth=3;x.stroke();
+  x.fillStyle=css('--dim');x.font='9px monospace';x.textAlign='center';x.textBaseline='middle';
+  x.fillText(Math.round(f*100)+'%',cx,cy);
+}
+function specDepth(id,vals){
+  const [x,w,h]=ctxOf(id);if(!vals.length)return;const mx=Math.max(...vals,1);
+  const n=vals.length,gap=4,bw=(w-gap*(n-1))/n;
+  vals.forEach((v,i)=>{const bh=(v/mx)*(h-4);const col=i<2?css('--green'):css('--orange');
+    x.fillStyle=col;x.globalAlpha=0.55+0.45*(v/mx);x.fillRect(i*(bw+gap),h-bh,bw,bh);x.globalAlpha=1;});
+}
+
+// ---- build one engine chunk; returns {tick} ----
+function buildEngine(root, cfg){
+  const k = cfg.key, SEL = cfg.sel, P = {};
+  const s = m => m + SEL;                          // append label selector to a metric name
+  root.innerHTML = `
+    <div class="card hero">
+      <div>
+        <h2>${cfg.title}</h2>
+        <div class="meta">${cfg.meta1}</div>
+        <div class="meta"><span class="awake">AWAKE</span> · UP <span id="${k}_uptime">—</span> · PROM</div>
+      </div>
+      <div>
+        <div class="big" id="${k}_tps">—</div>
+        <div class="unit">TOK/S · LIVE <span class="q" data-tip="Live output tokens generated per second across all in-flight requests — the engine's current aggregate throughput. AVG below is the lifetime per-stream mean.">?</span></div>
+        <div class="delta" id="${k}_tps_delta">AVG — /S</div>
+      </div>
+      <div><canvas class="hero_spark" id="${k}_hero_spark"></canvas></div>
+      <div class="status">
+        <span class="pill green" id="${k}_health">NOMINAL</span>
+        <div class="kv">
+          <div class="l">TTFT P95</div><div class="v red" id="${k}_s_ttft">—</div>
+          <div class="l">ITL P95</div><div class="v red" id="${k}_s_itl">—</div>
+          <div class="l">WAITING</div><div class="v amber" id="${k}_s_wait">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="row sec caps"><span>${cfg.secL}</span><span>${cfg.secR}</span></div>
+    <div class="tiles" id="${k}_tiles"></div>
+    <div class="row sec caps"><span>ENGINE TIMELINES</span><span>3 MIN · LIVE</span></div>
+    <div class="charts">
+      <div class="card chart">
+        <div class="row h"><span>TOKENS/S · GEN / PROMPT
+          <span class="lgd"><span><i style="background:var(--cyan)"></i>gen</span><span><i style="background:var(--purple)"></i>prompt</span></span></span>
+          <span class="big-r" id="${k}_r_tps">—</span></div>
+        <canvas class="tl" id="${k}_c_tok"></canvas>
+      </div>
+      <div class="card chart">
+        <div class="row h"><span>TTFT P50/P95 · MS</span><span class="big-r" id="${k}_r_ttft">—</span></div>
+        <canvas class="tl" id="${k}_c_ttft"></canvas>
+      </div>
+      <div class="card chart">
+        <div class="row h"><span>ITL P95 · MS</span><span class="big-r" id="${k}_r_itl">—</span></div>
+        <canvas class="tl" id="${k}_c_itl"></canvas>
+      </div>
+    </div>`;
+
+  const tEl = root.querySelector('#'+k+'_tiles');
+  TILES.forEach((t,i)=>tEl.insertAdjacentHTML('beforeend',
+    `<div class="card tile">
+       <div class="k">${t.k.toUpperCase()}<span class="q" data-tip="${t.tip||''}">?</span></div>
+       ${t.gauge?`<canvas class="gauge" id="${k}_kvg" width="34" height="34"></canvas>`:''}
+       ${t.depth?`<canvas class="spec_depth" id="${k}_spec_depth" width="150" height="46"></canvas>`
+               :`<div class="v" id="${k}_tv${i}">—</div>`}
+       <div class="s" id="${k}_ts${i}">${typeof t.s==='string'?t.s:''}</div>
+     </div>`));
+  const el = id => document.getElementById(k+'_'+id);
+
+  // lifetime scalars (reset-surviving; every 5th tick ~10s)
+  async function tickLife(){
+    // sum() collapses the (normally single) series per engine — robust if a series ever forks.
+    const L = m => q(`sum(increase(${s(m)}${LIFE}))`);
+    const [genL,promptL,hitsL,querL,saccL,sdraftL,preemptL,tpotSum,tpotCnt] = await Promise.all([
+      L(M.gen), L(M.prompt), L(M.hits), L(M.queries),
+      L(M.specAcc), L(M.specDraft), L(M.preempt), L(M.tpotSum), L(M.tpotCnt),
+    ]);
+    Object.assign(P,{genL:num(genL),promptL:num(promptL),preemptL:num(preemptL),
+      cacheHitL:num(hitsL)/num(querL), specAccL:num(saccL)/num(sdraftL)});
+    const avg = num(tpotCnt)/num(tpotSum);   // lifetime per-stream mean t/s
+    el('tps_delta').textContent='AVG '+(isFinite(avg)?avg.toFixed(1):'—')+' /S';
+    // ---- ROI: stash this engine's lifetime tokens; the COMBINED fleet cost is rendered once. ----
+    const inTok=P.promptL||0, outTok=P.genL||0;
+    // Split input into cached vs fresh using this engine's MEASURED vLLM prefix-cache hit rate.
+    const hit = isFinite(P.cacheHitL) ? Math.max(0,Math.min(1,P.cacheHitL)) : 0;
+    FLEET[cfg.key] = { inTok, outTok, cTok: inTok*hit, fTok: inTok*(1-hit) };
+    renderFleetCost();
+  }
+
+  async function tick(TK){
+    if(TK%5===0) tickLife();
+    const [run,wait,kv,ttft95,itl95] = await Promise.all([
+      q(`sum(${s(M.run)})`),q(`sum(${s(M.wait)})`),q(`avg(${s(M.kv)})`),
+      q(`histogram_quantile(0.95, sum(rate(${s(M.ttftB)}[5m])) by (le))*1000`),
+      q(`histogram_quantile(0.95, sum(rate(${s(M.itlB)}[5m])) by (le))*1000`),
+    ]);
+    Object.assign(P,{run:num(run),wait:num(wait),kv:num(kv)});
+    TILES.forEach((t,i)=>{const v=el('tv'+i);if(v)v.textContent=t.v(P);
+      const sub=el('ts'+i);if(sub&&typeof t.s==='function')sub.textContent=t.s(P);});
+    gauge(k+'_kvg',P.kv);
+    const pos = await q(`sort(${s(M.specPos)})`);
+    let depthVals=[];try{depthVals=pos.data.result
+      .sort((a,b)=>+a.metric.position-+b.metric.position).map(r=>+r.value[1]);}catch{}
+    specDepth(k+'_spec_depth',depthVals);
+    el('s_ttft').textContent=isNaN(num(ttft95))?'—':(num(ttft95)/1000).toFixed(2)+'s';
+    el('s_itl').textContent=isNaN(num(itl95))?'—':Math.round(num(itl95))+'ms';
+    el('s_wait').textContent=fmtN(P.wait);
+
+    const tps=await q(`sum(rate(${s(M.gen)}[15s]))`);
+    const tpsV=num(tps);el('tps').textContent=isNaN(tpsV)?'0.0':tpsV.toFixed(1);
+    el('r_tps').textContent=(isNaN(tpsV)?0:tpsV).toFixed(1)+' GEN/S';
+
+    const [genS,promptS,ttftP50,ttftP95,itlP95] = await Promise.all([
+      qr(`sum(rate(${s(M.gen)}[30s]))`),qr(`sum(rate(${s(M.prompt)}[30s]))`),
+      qr(`histogram_quantile(0.5, sum(rate(${s(M.ttftB)}[1m])) by (le))*1000`),
+      qr(`histogram_quantile(0.95, sum(rate(${s(M.ttftB)}[1m])) by (le))*1000`),
+      qr(`histogram_quantile(0.95, sum(rate(${s(M.itlB)}[1m])) by (le))*1000`),
+    ]);
+    dualArea(k+'_c_tok',ser(genS),ser(promptS));
+    multiLine(k+'_c_ttft',[{data:ser(ttftP50),color:css('--amber')},{data:ser(ttftP95),color:css('--orange')}],{fmt:v=>Math.round(v)+'ms'});
+    const itl=ser(itlP95);areaLine(k+'_c_itl',itl,css('--purple'),css('--purple-fill'),{showGrid:true,fmt:v=>Math.round(v)+'ms'});
+    areaLine(k+'_hero_spark',ser(genS),css('--cyan'),css('--cyan-fill'));
+    const lastMs=v=>{const a=v.filter(d=>d[1]>0);return a.length?a[a.length-1][1]:NaN};
+    el('r_ttft').textContent=isNaN(lastMs(ser(ttftP95)))?'—':Math.round(lastMs(ser(ttftP95)))+'ms';
+    el('r_itl').textContent=isNaN(lastMs(itl))?'—':Math.round(lastMs(itl))+'ms';
+
+    const up=await q(`time() - max(process_start_time_seconds${SEL})`);
+    const us=num(up);
+    el('uptime').textContent=isNaN(us)?'—':
+      us>=86400?Math.floor(us/86400)+'d '+Math.floor(us%86400/3600)+'h':
+      us>=3600?Math.floor(us/3600)+'h '+Math.floor(us%3600/60)+'m':Math.floor(us/60)+'m';
+  }
+  return { tick };
+}
+
+// ---- mount both chunks + drive them ----
+const engines = ENGINES.map(cfg=>{
+  const root=document.createElement('section'); root.className='engine';
+  document.body.appendChild(root); return buildEngine(root,cfg);
+});
+
+// ---- combined fleet ROI: one panel summing every engine above ----
+const fleet=document.createElement('section'); fleet.className='engine fleetroi';
+fleet.innerHTML=`
+  <div class="row sec caps"><span>FLEET · COST / ROI <span class="q" data-tip="Combined across every engine above. What these lifetime tokens would have cost on a hosted API — the ROI of self-hosting the whole fleet. Each engine's input is split cached/fresh by its own measured prefix-cache hit rate, priced at that provider's rate, then summed. Cells show fresh/cached/output per 1M tokens.">?</span></span><span>ALL ENGINES · EQUIVALENT API SPEND (CACHE-ADJUSTED)</span></div>
+  <div class="card costbar">
+    <div class="io">
+      <div><div class="cl">INPUT · LIFETIME</div><div class="cv" id="fleet_in">—</div><div class="cs" id="fleet_in_sub">prompt tokens · all engines</div></div>
+      <div><div class="cl">OUTPUT · LIFETIME</div><div class="cv" id="fleet_out">—</div><div class="cs">generated tokens · all engines</div></div>
+    </div>
+    <div class="prov" id="fleet_cost"></div>
+  </div>`;
+document.body.appendChild(fleet);
+
+let TK=0;
+async function tickAll(){
+  document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-US',{hour12:false});
+  await Promise.all(engines.map(e=>e.tick(TK)));
+  TK++;
+}
+tickAll(); setInterval(tickAll,2000);
+addEventListener('resize',()=>tickAll());
+</script>

@@ -1,0 +1,42 @@
+# vllm-metrics-dashboard — one-command deploy (Prometheus + dashboard).
+#
+# First run:
+#   cp prometheus/prometheus.example.yml prometheus/prometheus.yml
+#   # edit prometheus/prometheus.yml   -> point at your vLLM server
+#   # edit dashboard/static/config.js  -> name your engine(s)
+#   docker compose up -d --build
+#   open http://localhost:8091
+#
+# The dashboard talks to Prometheus over the compose network (service name
+# `prometheus`), so nothing but the UI port is published.
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Keep in sync with `life` in config.js. 30d default.
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    # Uncomment to inspect Prometheus directly:
+    # ports: ["9090:9090"]
+
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    environment:
+      PROM_URL: http://prometheus:9090
+    ports:
+      - "${DASHBOARD_PORT:-8091}:8080"
+    # Bind-mount config so edits apply on reload — no rebuild needed.
+    volumes:
+      - ./dashboard/static/config.js:/app/static/config.js:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  prom-data:

@@ -1,0 +1,39 @@
+# Prometheus scrape config for vllm-metrics-dashboard.
+#
+# Copy to prometheus.yml and point the target(s) at your vLLM server(s).
+# vLLM exposes Prometheus metrics at /metrics on its OpenAI API port (default
+# 8000) when started with `--enable-metrics` (on by default in recent vLLM).
+#
+# ── STANDALONE (one vLLM server) ──────────────────────────────────────────
+# Leave a single job named `vllm`. In config.js set the engine selector to ''
+# (matches everything) or '{job="vllm"}'.
+#
+# A 2s scrape gives a smooth live view but writes a lot of samples. If you keep
+# a long retention (e.g. 365d), raise this to 5s-15s to bound disk usage.
+
+global:
+  scrape_interval: 2s
+  scrape_timeout: 1s
+
+scrape_configs:
+  - job_name: vllm
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['YOUR_VLLM_HOST:8000']   # <-- change me (e.g. 127.0.0.1:8000)
+
+  # ── FLEET (multiple vLLM servers) ───────────────────────────────────────
+  # One job per engine. The job name must match the `selector` in config.js,
+  # e.g. selector: '{job="vllm-a"}'. Keep each job's labels stable once
+  # deployed — changing a label forks the series and zeroes lifetime counters.
+  #
+  # - job_name: vllm-a
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['10.0.0.11:8000']
+  #       labels: { model: llama-3.1-70b, node: node-a }
+  #
+  # - job_name: vllm-b
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['10.0.0.12:8000']
+  #       labels: { model: qwen2.5-32b, node: node-b }

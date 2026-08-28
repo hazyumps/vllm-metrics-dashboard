@@ -16,6 +16,15 @@ PROM = os.environ.get("PROM_URL", "http://prometheus:9090")
 app = FastAPI(title="vllm-metrics-dashboard")
 
 
+@app.middleware("http")
+async def no_cache(request, call_next):
+    # Live dashboard — never let a browser serve a stale index.html/config.js.
+    # StaticFiles sends an ETag, so this is a cheap 304 revalidation, not a refetch.
+    resp = await call_next(request)
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.get("/api/q")
 async def instant(expr: str = Query(...)):
     async with httpx.AsyncClient(timeout=5) as c:

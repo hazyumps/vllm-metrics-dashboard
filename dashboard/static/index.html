@@ -65,8 +65,12 @@
   .tile .k{font-size:10px;color:var(--dim);display:flex;align-items:center}
   .tile .v{font-size:25px;font-weight:600;margin-top:9px;letter-spacing:-.5px}
   .tile .s{font-size:10px;color:var(--dim2);margin-top:5px}
-  .gauge{position:absolute;top:11px;right:11px}
-  .spec_depth{margin-top:6px}
+  /* Fixed-size canvases MUST carry an explicit CSS size, or the hi-dpi rescale
+     in ctxOf() (canvas.width = clientWidth*dpr) feeds back on a Retina display
+     and the canvas doubles every tick. The full-width canvases are pinned by
+     width:100% and are safe. */
+  .gauge{position:absolute;top:11px;right:11px;width:34px;height:34px}
+  .spec_depth{margin-top:6px;width:150px;height:46px}
 
   /* charts */
   .charts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}

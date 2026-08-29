@@ -178,6 +178,14 @@ Every `?` marker in the UI has a hover tooltip. In short:
   per-position accepted-token depth. Blank if you're not running speculative
   decoding — that's expected, not a bug.
 - **TTFT / ITL** — time-to-first-token and inter-token latency, P50/P95.
+- **Prefill** — the prompt-processing phase, before the first output token.
+  Shows P50/P95 prefill latency, prefill throughput split into GPU-computed vs
+  prefix-cache-skipped tokens, and the prefill-vs-decode share of total inference
+  time (plus queue P95 / waiting). High prefill share = prompt-bound (big
+  contexts); high decode share = generation-bound. Latency timelines populate
+  under load and blank when idle — the stat falls back to the lifetime mean.
+  Needs vLLM v1 request-level metrics (`vllm:request_prefill_time_seconds`,
+  `vllm:request_decode_time_seconds`, `vllm:prompt_tokens_cached_total`).
 - **Cost / ROI** — equivalent hosted-API spend for your lifetime tokens.
 
 ---

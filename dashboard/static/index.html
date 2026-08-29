@@ -81,6 +81,18 @@
   .lgd i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle}
   canvas.tl{width:100%;height:150px;display:block;margin-top:8px}
 
+  /* prefill: time-share split bar + queue stats */
+  .splitbar{display:flex;height:24px;border-radius:6px;overflow:hidden;margin-top:14px;background:var(--line)}
+  .splitbar .seg{height:100%;transition:width .3s}
+  .splitbar .seg.pf{background:var(--orange)} .splitbar .seg.dc{background:var(--cyan)}
+  .splitlgd{display:flex;gap:18px;margin-top:9px;font-size:10px;color:var(--dim)}
+  .splitlgd i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:middle}
+  .splitlgd b{color:var(--txt);font-weight:600}
+  .qstats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+  .qstats .ql{font-size:10px;color:var(--dim2)}
+  .qstats .qv{font-size:18px;font-weight:600;margin-top:4px}
+  .qstats .qv.amber{color:var(--amber)}
+
   /* cost / ROI bar */
   .costbar{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:center;
            padding:14px 18px;margin-top:10px}
@@ -119,6 +131,13 @@ const M = {
   itlB:'vllm:request_time_per_output_token_seconds_bucket',
   tpotSum:'vllm:request_time_per_output_token_seconds_sum',
   tpotCnt:'vllm:request_time_per_output_token_seconds_count',
+  // prefill phase (vLLM v1: request-level prefill/decode timing + cached-prompt counter)
+  prefillB:'vllm:request_prefill_time_seconds_bucket',
+  prefillSum:'vllm:request_prefill_time_seconds_sum',
+  prefillCnt:'vllm:request_prefill_time_seconds_count',
+  decodeSum:'vllm:request_decode_time_seconds_sum',
+  promptCached:'vllm:prompt_tokens_cached_total',
+  queueB:'vllm:request_queue_time_seconds_bucket',
 };
 // ---- Everything below comes from window.FLEET_CONFIG (config.js). ----
 // If config.js is missing or empty, these built-in defaults render a single
@@ -197,6 +216,8 @@ const num = j => { try{const v=+j.data.result[0].value[1];return isFinite(v)?v:N
 const ser = j => { try{return j.data.result[0].values.map(v=>[+v[0], isFinite(+v[1])?+v[1]:0])}catch{return[]} };
 const fmtN = v => isNaN(v)?'—':v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?(v/1e3).toFixed(1)+'k':v.toFixed(0);
 const pct = v => isNaN(v)?'—':(v*100).toFixed(1)+'%';
+// duration in ms -> ms / s, for prefill (which runs seconds on long contexts)
+const fmtDur = ms => isNaN(ms)?'—': ms>=1e4?(ms/1e3).toFixed(0)+'s' : ms>=1e3?(ms/1e3).toFixed(1)+'s' : Math.round(ms)+'ms';
 
 // tile definitions (P is the engine's state object, passed in)
 const TILES = [
@@ -322,6 +343,36 @@ function buildEngine(root, cfg){
         <div class="row h"><span>ITL P95 · MS</span><span class="big-r" id="${k}_r_itl">—</span></div>
         <canvas class="tl" id="${k}_c_itl"></canvas>
       </div>
+    </div>
+    <div class="row sec caps"><span>PREFILL PROCESSING</span><span>3 MIN · LIVE · LIFETIME FALLBACK</span></div>
+    <div class="charts">
+      <div class="card chart">
+        <div class="row h"><span>PREFILL P50/P95
+          <span class="q" data-tip="Time each request spends in the prefill (prompt-processing) phase, before the first output token. P50 (amber) / P95 (orange) over a 1-min window; the number at right is the latest P95, falling back to the lifetime mean ('avg') when the engine has been idle. Long contexts dominate this.">?</span></span>
+          <span class="big-r" id="${k}_r_pf">—</span></div>
+        <canvas class="tl" id="${k}_c_pf"></canvas>
+      </div>
+      <div class="card chart">
+        <div class="row h"><span>PREFILL TOK/S · COMPUTED / CACHED
+          <span class="lgd"><span><i style="background:var(--cyan)"></i>computed</span><span><i style="background:var(--purple)"></i>cached</span></span>
+          <span class="q" data-tip="Prompt tokens entering prefill per second, split into GPU-computed (cyan line, real prefill work) and prefix-cache-skipped (purple bars, reused from an earlier request). A tall purple band = the prefix cache is saving most of the prefill cost.">?</span></span>
+          <span class="big-r" id="${k}_r_pftok">—</span></div>
+        <canvas class="tl" id="${k}_c_pftok"></canvas>
+      </div>
+      <div class="card chart">
+        <div class="row h"><span>PREFILL vs DECODE · TIME SHARE
+          <span class="q" data-tip="Share of total request inference time spent in prefill vs decode, lifetime. High prefill share = prompt-bound (big contexts); high decode share = generation-bound. QUEUE P95 and live WAITING show congestion before prefill even starts.">?</span></span>
+          <span class="big-r" id="${k}_r_share">—</span></div>
+        <div class="splitbar"><div class="seg pf" id="${k}_share_pf" style="width:0"></div><div class="seg dc" id="${k}_share_dc" style="width:0"></div></div>
+        <div class="splitlgd">
+          <span><i style="background:var(--orange)"></i>prefill <b id="${k}_share_pfv">—</b></span>
+          <span><i style="background:var(--cyan)"></i>decode <b id="${k}_share_dcv">—</b></span>
+        </div>
+        <div class="qstats">
+          <div><div class="ql">QUEUE P95</div><div class="qv amber" id="${k}_q_queue">—</div></div>
+          <div><div class="ql">WAITING</div><div class="qv" id="${k}_q_wait">—</div></div>
+        </div>
+      </div>
     </div>`;
 
   const tEl = root.querySelector('#'+k+'_tiles');
@@ -391,6 +442,40 @@ function buildEngine(root, cfg){
     const lastMs=v=>{const a=v.filter(d=>d[1]>0);return a.length?a[a.length-1][1]:NaN};
     el('r_ttft').textContent=isNaN(lastMs(ser(ttftP95)))?'—':Math.round(lastMs(ser(ttftP95)))+'ms';
     el('r_itl').textContent=isNaN(lastMs(itl))?'—':Math.round(lastMs(itl))+'ms';
+
+    // ---- prefill panels ----
+    // Timelines populate under load (like TTFT); go blank when idle. clamp_min guards
+    // the rare scrape-skew where cached rate briefly exceeds total prompt rate.
+    const [pfP50,pfP95,pfComp,pfCache] = await Promise.all([
+      qr(`histogram_quantile(0.5, sum(rate(${s(M.prefillB)}[1m])) by (le))*1000`),
+      qr(`histogram_quantile(0.95, sum(rate(${s(M.prefillB)}[1m])) by (le))*1000`),
+      qr(`clamp_min(sum(rate(${s(M.prompt)}[30s])) - sum(rate(${s(M.promptCached)}[30s])),0)`),
+      qr(`sum(rate(${s(M.promptCached)}[30s]))`),
+    ]);
+    multiLine(k+'_c_pf',[{data:ser(pfP50),color:css('--amber')},{data:ser(pfP95),color:css('--orange')}],{fmt:fmtDur});
+    dualArea(k+'_c_pftok',ser(pfComp),ser(pfCache));   // computed = cyan line, cached = purple bars
+    const pfLast=lastMs(ser(pfP95));
+    if(!isNaN(pfLast)){ el('r_pf').textContent=fmtDur(pfLast); }
+    else { const j=await q(`sum(${s(M.prefillSum)})/sum(${s(M.prefillCnt)})*1000`);   // idle -> lifetime mean
+           const m=num(j); el('r_pf').textContent=isNaN(m)?'—':fmtDur(m)+' avg'; }
+    const compLast=lastMs(ser(pfComp));
+    el('r_pftok').textContent=(isNaN(compLast)?0:compLast).toFixed(0)+' T/S';
+
+    // prefill-vs-decode share: lifetime counter sums, so it always resolves (structural, not rate-based)
+    const [pfSum,dcSum,queue] = await Promise.all([
+      q(`sum(${s(M.prefillSum)})`), q(`sum(${s(M.decodeSum)})`),
+      q(`histogram_quantile(0.95, sum(rate(${s(M.queueB)}[5m])) by (le))*1000`),
+    ]);
+    const pfs=num(pfSum), dcs=num(dcSum), tot=pfs+dcs;
+    if(tot>0){ const pfr=pfs/tot;
+      el('share_pf').style.width=(pfr*100).toFixed(1)+'%';
+      el('share_dc').style.width=((1-pfr)*100).toFixed(1)+'%';
+      el('share_pfv').textContent=pct(pfr); el('share_dcv').textContent=pct(1-pfr);
+      el('r_share').textContent=pct(pfr)+' PF';
+    }
+    const qn=num(queue);
+    el('q_queue').textContent=isNaN(qn)?'—':fmtDur(qn);
+    el('q_wait').textContent=fmtN(P.wait);
 
     const up=await q(`time() - max(process_start_time_seconds${SEL})`);
     const us=num(up);

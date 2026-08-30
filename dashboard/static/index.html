@@ -425,8 +425,8 @@ function buildEngine(root, cfg){
     el('s_itl').textContent=isNaN(num(itl95))?'—':Math.round(num(itl95))+'ms';
     el('s_wait').textContent=fmtN(P.wait);
 
-    // window must be >= ~3x the Prometheus scrape_interval or rate() sees <2 samples and returns empty (live number flickers to 0.0)
-    const tps=await q(`sum(rate(${s(M.gen)}[30s]))`);
+    // [20s]: snappy live number at a fast (2s) scrape, still holds >=2 samples (no flicker to 0.0) up to a ~9s scrape_interval.
+    const tps=await q(`sum(rate(${s(M.gen)}[20s]))`);
     const tpsV=num(tps);el('tps').textContent=isNaN(tpsV)?'0.0':tpsV.toFixed(1);
     el('r_tps').textContent=(isNaN(tpsV)?0:tpsV).toFixed(1)+' GEN/S';
 
